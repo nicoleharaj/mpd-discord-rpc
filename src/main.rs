@@ -49,6 +49,7 @@ async fn main() {
     loop {
         tokio::select! {
             Ok(event) = mpd.recv() => {
+
                 if matches!(*event, SubsystemChange(Subsystem::Player | Subsystem::Queue)) {
                     info!("Detected change, updating status");
                     debug!("Change: {event:?}");
@@ -160,6 +161,7 @@ impl<'a> Service<'a> {
     async fn update_state(&mut self, status: &Status, current_song: Option<SongInQueue>) {
         // https://discord.com/developers/docs/rich-presence/how-to#updating-presence-update-presence-payload
         const MAX_BYTES: usize = 128;
+        const MIN_BYTES: usize = 3;
 
         let format = &self.config.format;
 
@@ -167,18 +169,23 @@ impl<'a> Service<'a> {
             if let Some(song_in_queue) = current_song {
                 let song = song_in_queue.song;
 
-                let details = clamp(
+                let mut details = clamp(
                     replace_tokens(&format.details, &self.tokens.details, &song, status),
                     MAX_BYTES,
                 );
-                let state = clamp(
+                let mut state = clamp(
                     replace_tokens(&format.state, &self.tokens.state, &song, status),
                     MAX_BYTES,
                 );
-                let large_text =
+                let mut large_text =
                     replace_tokens(&format.large_text, &self.tokens.large_text, &song, status);
-                let small_text =
+                let mut small_text =
                     replace_tokens(&format.small_text, &self.tokens.small_text, &song, status);
+
+                details = pad(details, MIN_BYTES);
+                state = pad(state, MIN_BYTES);
+                large_text = pad(large_text, MIN_BYTES);
+                small_text = pad(small_text, MIN_BYTES);
 
                 let timestamps = get_timestamp(status, format.timestamp);
 
@@ -266,4 +273,16 @@ fn clamp(mut str: String, len: usize) -> String {
     }
 
     str
+}
+
+/// Pads a string to required length.
+///
+/// If a string is shorter than the min length, 
+/// it is padded with spaces.
+fn pad(s: String, min_length: usize) -> String {
+    if s.len() < min_length {
+        format!("{:<1$}", s, min_length)
+    } else {
+        s
+    }
 }
